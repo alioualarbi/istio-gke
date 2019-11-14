@@ -221,3 +221,30 @@ $ istioctl pc routes $(kubectl get pod -l app=productpage -o jsonpath='{.items[0
 ```
 
 #### 6. Define ingress rules to enable external access to the app
+
+[Documentation](https://istio.io/docs/tasks/traffic-management/ingress/ingress-control/)
+
+Let's configure the access to the sample application from outside of the cluster.
+
+With the Istio GKE addon, the ingress gateway is exposed via Network LoadBalancer by default. If we look at the istio-ingressgateway service, we will see it has an external IP.
+
+```
+$ kubectl get svc -n istio-system -l istio=ingressgateway
+```
+##### Output
+```
+NAME                   TYPE           CLUSTER-IP    EXTERNAL-IP     PORT(S)                                                                                                                                      AGE
+istio-ingressgateway   LoadBalancer   10.XXX.0.90   xxx.xxx.xxx.xxx   15020:32425/TCP,80:30981/TCP,443:30428/TCP,31400:30104/TCP,15029:31617/TCP,15030:32527/TCP,15031:30954/TCP,15032:30462/TCP,15443
+```
+Reaching the istio-ingressgateway external IP:
+```
+$ curl $(kubectl -n istio-system get service istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+```
+##### Output
+```
+curl: (7) Failed to connect to xxx.xxxx.xxxx.xxxx port 80: Connection refused
+```
+The command returns ‘connection refused’ since there is no Istio programming for the ingress gateway to route requests to the sample app deployed. We will create rules for that in the next steps.
+
+
+##### 6.1 Creating a Gateway and VirtualService
