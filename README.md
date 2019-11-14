@@ -248,8 +248,7 @@ The command returns ‘connection refused’ since there is no Istio programming
 
 
 ##### 6.1 Creating a Gateway and VirtualService
-###### Creating the Gateway object
-[Documentation](https://istio.io/docs/reference/config/networking/v1alpha3/gateway/)
+###### 6.1.1 Creating the Gateway object [Documentation](https://istio.io/docs/reference/config/networking/v1alpha3/gateway/)
 
 The following gateway object configures the ingressgateway deployment to accept incoming connections to port 80 on any IP (hosts: *).
 ```
@@ -291,8 +290,7 @@ $ curl -I $(kubectl -n istio-system get service istio-ingressgateway -o jsonpath
 
 So basically we just programmed the envoy from the istio-ingressgateway to listen on port 80 and to return 404 by default.
 
-###### Creating the VirtualService object
-[Documentation](https://istio.io/docs/reference/config/networking/v1alpha3/virtual-service/)
+###### 6.1.2 Creating the VirtualService object [Documentation](https://istio.io/docs/reference/config/networking/v1alpha3/virtual-service/)
 
 What allows us to program the url mappings on the ingress gateway with our application backends, is the VirtualService object. The following VirtualService programs a set of uris which maps to the productpage application backend.
 ```
@@ -353,8 +351,7 @@ NOTE: the response header shows the request is served by envoy
 ```
 $ curl -I http://${GATEWAY_URL}
 ```
-#### 7. Accessing an external service from inside the Mesh
-[Documentation](https://istio.io/docs/tasks/traffic-management/egress/egress-control/)
+#### 7. Accessing an external service from inside the Mesh [Documentation](https://istio.io/docs/tasks/traffic-management/egress/egress-control/)
 
 In this version of Istio, envoy is configured by default as a passthrough for requests to external services.
 
@@ -397,3 +394,274 @@ outboundTrafficPolicy:
 localityLbSetting:
   {}
  ```
+##### 7.1 Forcing traffic through the Egress Gateway [Documentation](https://istio.io/docs/tasks/traffic-management/egress/egress-gateway/)
+
+###### 7.1.1 install [Helm](https://helm.sh/)
+
+```
+$ wget https://get.helm.sh/helm-v2.14.3-linux-amd64.tar.gz
+$ tar -xvf helm-v2.14.3-linux-amd64.tar.gz
+$ sudo mv linux-amd64/helm /usr/local/bin/helm
+```
+
+###### 7.1.1 installthe egress gateway helm template
+
+Be sure to be on the istio release directory installed above:
+```
+$ pwd
+/home/istio-1.1.13
+```
+Use helm to deploy the ingress gateway based on its release template:
+```
+$ helm template install/kubernetes/helm/istio --name istio-egressgateway --namespace istio-system \
+    -x charts/gateways/templates/deployment.yaml -x charts/gateways/templates/service.yaml \
+    -x charts/gateways/templates/serviceaccount.yaml -x charts/gateways/templates/autoscale.yaml \
+    -x charts/gateways/templates/role.yaml -x charts/gateways/templates/rolebindings.yaml \
+    --set global.istioNamespace=istio-system --set gateways.istio-ingressgateway.enabled=false \
+    --set gateways.istio-egressgateway.enabled=true | kubectl apply -f -
+```
+
+
+###### Output
+```
+$ helm template install/kubernetes/helm/istio --name istio-egressgateway --namespace istio-system \
+>     -x charts/gateways/templates/deployment.yaml -x charts/gateways/templates/service.yaml \
+>     -x charts/gateways/templates/serviceaccount.yaml -x charts/gateways/templates/autoscale.yaml \
+>     -x charts/gateways/templates/role.yaml -x charts/gateways/templates/rolebindings.yaml \
+>     --set global.istioNamespace=istio-system --set gateways.istio-ingressgateway.enabled=false \
+>     --set gateways.istio-egressgateway.enabled=true | kubectl apply -f -
+serviceaccount/istio-egressgateway-service-account created
+service/istio-egressgateway created
+deployment.extensions/istio-egressgateway created
+horizontalpodautoscaler.autoscaling/istio-egressgateway created
+```
+
+###### 7.1.2 Checking the egress gateway
+```
+$ kubectl get pods -n istio-system
+$ kubectl describe pod -l app=istio-egressgateway -n istio-system
+```
+We can check it as well on the mesh overview.
+
+```
+$ istioctl ps
+NAME                                                   CDS        LDS        EDS               RDS          PILOT                            VERSION
+istio-egressgateway-7f76d9794-4gf4b.istio-system       SYNCED     SYNCED     SYNCED (100%)     NOT SENT     istio-pilot-78d6847769-blrw8     1.1.3
+istio-ingressgateway-6d8f9d87f8-fjsbd.istio-system     SYNCED     SYNCED     SYNCED (100%)     NOT SENT     istio-pilot-78d6847769-blrw8     1.1.3
+```
+###### 7.1.2 Making a external request directly to httpbin.org
+```
+$ kubectl exec -it $(kubectl get pod -l app=ratings -o jsonpath='{.items[0].metadata.name}') -c ratings -- curl -I http://httpbin.org
+
+HTTP/1.1 200 OK
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Origin: *
+Content-Length: 9593
+Content-Type: text/html; charset=utf-8
+Date: Thu, 14 Nov 2019 21:32:49 GMT
+Referrer-Policy: no-referrer-when-downgrade
+Server: nginx
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-XSS-Protection: 1; mode=block
+Connection: keep-alive
+```
+###### 7.1.3 Stats of the egress gateway [Documentation](https://www.envoyproxy.io/docs/envoy/v1.5.0/configuration/cluster_manager/cluster_stats)
+```
+$ kubectl exec -it $(kubectl get pod -l app=istio-egressgateway -o jsonpath='{.items[0].metadata.name}' -n istio-system) -n istio-system -c istio-proxy -- curl -s localhost:15000/clusters | grep httpbin | grep total
+```
+Note: this should be empty
+
+###### 7.1.4 Create a ServiceEntry for httpbin.org
+```
+$ kubectl apply -f - <<EOF
+apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  name: httpbin
+spec:
+  hosts:
+  - httpbin.org
+  ports:
+  - number: 80
+    name: http
+    protocol: HTTP
+  resolution: DNS
+EOF
+
+```
+Checking the stats again, we see outbound to httpbin.org has been programmed but the stats are still zero connections:
+```
+$ kubectl exec -it $(kubectl get pod -l app=istio-egressgateway -o jsonpath='{.items[0].metadata.name}' -n istio-system) -n istio-system -c istio-proxy -- curl -s localhost:15000/clusters | grep httpbin | grep total
+```
+
+Checking the ingegress gateway programming:
+
+```
+$ istioctl pc clusters $(kubectl get pods -l istio=egressgateway -o jsonpath='{.items[0].metadata.name}' -n istio-system).istio-system | grep httpbin
+outbound|80||httpbin.org::52.200.159.44:80::cx_total::0
+outbound|80||httpbin.org::52.200.159.44:80::rq_total::0
+outbound|80||httpbin.org::3.225.168.125:80::cx_total::0
+outbound|80||httpbin.org::3.225.168.125:80::rq_total::0
+outbound_.80_._.httpbin.org::52.200.159.44:80::cx_total::0
+outbound_.80_._.httpbin.org::52.200.159.44:80::rq_total::0
+outbound_.80_._.httpbin.org::3.225.168.125:80::cx_total::0
+outbound_.80_._.httpbin.org::3.225.168.125:80::rq_total::0
+```
+
+```
+$ istioctl pc endpoints $(kubectl get pods -l istio=egressgateway -o jsonpath='{.items[0].metadata.name}' -n istio-system).istio-system | grep httpbin
+3.225.168.125:80       HEALTHY     outbound_.80_._.httpbin.org
+3.225.168.125:80       HEALTHY     outbound|80||httpbin.org
+52.200.159.44:80       HEALTHY     outbound_.80_._.httpbin.org
+52.200.159.44:80       HEALTHY     outbound|80||httpbin.org
+```
+###### 7.1.5 Create Gateway and DestinationRule
+
+```
+$ kubectl apply -f - <<EOF
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: istio-egressgateway
+spec:
+  selector:
+    istio: egressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - httpbin.org
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: egressgateway-for-httpbin
+spec:
+  host: istio-egressgateway.istio-system.svc.cluster.local
+  subsets:
+  - name: httpbin
+EOF
+```
+This creates a listener and route for port 80 on the egress gateway proxy
+
+```
+$ istioctl pc listeners $(kubectl get pods -l istio=egressgateway -o jsonpath='{.items[0].metadata.name}' -n istio-system).istio-system
+ADDRESS     PORT      TYPE
+0.0.0.0     80        HTTP
+0.0.0.0     15090     HTTP
+```
+
+```
+$ istioctl pc routes $(kubectl get pods -l istio=egressgateway -o jsonpath='{.items[0].metadata.name}' -n istio-system).istio-system
+NAME        VIRTUAL HOSTS
+http.80     1
+            1
+```
+However the default route created for the egress gateway is just the default 404 for port 8
+```
+$ istioctl pc routes $(kubectl get pods -l istio=egressgateway -o jsonpath='{.items[0].metadata.name}' -n istio-system).istio-system --name http.80 -o json
+[
+    {
+        "name": "http.80",
+        "virtualHosts": [
+            {
+                "name": "blackhole:80",
+                "domains": [
+                    "*"
+                ],
+                "routes": [
+                    {
+                        "match": {
+                            "prefix": "/"
+                        },
+                        "directResponse": {
+                            "status": 404
+                        },
+                        "perFilterConfig": {
+                            "mixer": {}
+                        }
+                    }
+                ]
+            }
+        ],
+        "validateClusters": false
+    }
+]
+```
+Reaching again the endpoint and checking the stats on the egress gateway will still show 0 connections:
+```
+$ kubectl exec -it $(kubectl get pod -l app=ratings -o jsonpath='{.items[0].metadata.name}') -c ratings -- curl -I http://httpbin.org
+```
+```
+$ kubectl exec -it $(kubectl get pod -l app=istio-egressgateway -o jsonpath='{.items[0].metadata.name}' -n istio-system) -n istio-system -c istio-proxy -- curl -s localhost:15000/clusters | grep httpbin | grep total
+```
+###### 7.1.6 Create a VirtualService
+This configures the mesh to send traffic to the egress gateway when the destination is httpbin.org and the egress gateway to send it to httpbin.org.
+
+```
+$ kubectl apply -f - <<EOF
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: httpbin-http-through-egress-gateway
+spec:
+  hosts:
+  - httpbin.org
+  gateways:
+  - istio-egressgateway
+  - mesh
+  http:
+  - match:
+    - gateways:
+      - mesh
+      port: 80
+    route:
+    - destination:
+        host: istio-egressgateway.istio-system.svc.cluster.local
+        subset: httpbin
+        port:
+          number: 80
+      weight: 100
+  - match:
+    - gateways:
+      - istio-egressgateway
+      port: 80
+    route:
+    - destination:
+        host: httpbin.org
+        port:
+          number: 80
+      weight: 100
+EOF
+```
+Both the app and the egress gateway now see a route that forwards requests to httpbin.org via the istio-egressgateway
+```
+$ istioctl pc routes $(kubectl get pod -l app=ratings -o jsonpath='{.items[0].metadata.name}') --name 80 -o json | grep httpbin
+```
+```
+$istioctl pc routes $(kubectl get pods -l istio=egressgateway -o jsonpath='{.items[0].metadata.name}' -n istio-system).istio-system --name http.80 -o json
+```
+Making requests to httpbin.org through the egress gateway
+```
+$ kubectl exec -it $(kubectl get pod -l app=ratings -o jsonpath='{.items[0].metadata.name}') -c ratings -- curl -I http://httpbin.org
+```
+Checking connections are going through the egress gateway
+```
+$ kubectl exec -it $(kubectl get pod -l app=istio-egressgateway -o jsonpath='{.items[0].metadata.name}' -n istio-system) -n istio-system -c istio-proxy -- curl -s localhost:15000/clusters | grep httpbin | grep total
+```
+##### output:
+```
+$ kubectl exec -it $(kubectl get pod -l app=istio-egressgateway -o jsonpath='{.items[0].metadata.name}' -n istio-system) -n istio-system -c istio-proxy -- curl -s localhost:15000/clusters | grep httpbin | grep total
+outbound|80||httpbin.org::52.200.159.44:80::cx_total::0
+outbound|80||httpbin.org::52.200.159.44:80::rq_total::0
+outbound|80||httpbin.org::3.225.168.125:80::cx_total::1
+outbound|80||httpbin.org::3.225.168.125:80::rq_total::1
+outbound_.80_._.httpbin.org::3.225.168.125:80::cx_total::0
+outbound_.80_._.httpbin.org::3.225.168.125:80::rq_total::0
+outbound_.80_._.httpbin.org::52.200.159.44:80::cx_total::0
+outbound_.80_._.httpbin.org::52.200.159.44:80::rq_total::0
+
+```
