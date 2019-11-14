@@ -369,3 +369,18 @@ $ kubectl exec -it $(kubectl get pod -l app=ratings -o jsonpath='{.items[0].meta
 ```
 
 ![alt text](https://github.com/alioualarbi/istio-gke/blob/master/webhook.png)
+
+NOTE: A ServiceEntry would be required if the global.outboundTrafficPolicy.mode was set to {REGISTRY_ONLY} instead of {ALLOW_ANY}. On Istio 1.0.x {REGISTRY_ONLY} was default but since 1.1.x it is now {ALLOW_ANY}. When using Isito OSS, users can overwrite the release default and configure the global policy they prefer.
+
+Based on this global policy, all sidecar proxies are configured with ‘PassthroughCluster’ which forwards the request to its ‘ORIGINAL_DST’. For an example, see:
+
+```
+$ istioctl pc clusters $(kubectl get pods -l istio=ingressgateway -o jsonpath='{.items[0].metadata.name}' -n istio-system).istio-system | grep PassthroughCluster
+```
+This means that the PassthroughCluster does not show on the output of ‘istioctl pc clusters’, likely {REGISTRY_ONLY} is configured for global.outboundTrafficPolicy.mode.
+
+It is possible to verify that on a cluster, by checking the istio configmap on istio-system namespace:
+```
+$ kubectl -n istio-system get configmap istio -o=jsonpath='{.data.mesh}'
+```
+
