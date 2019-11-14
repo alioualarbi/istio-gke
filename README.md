@@ -353,3 +353,4 @@ NOTE: the response header shows the request is served by envoy
 ```
 $ curl -I http://${GATEWAY_URL}
 ```
+#### 7. Accessing an external service from inside the Mesh
