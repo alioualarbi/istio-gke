@@ -384,3 +384,16 @@ It is possible to verify that on a cluster, by checking the istio configmap on i
 $ kubectl -n istio-system get configmap istio -o=jsonpath='{.data.mesh}'
 ```
 
+###### Output
+```
+# Set the default behavior of the sidecar for handling outbound traffic from the application:
+# ALLOW_ANY - outbound traffic to unknown destinations will be allowed, in case there are no
+#   services or ServiceEntries for the destination port
+# REGISTRY_ONLY - restrict outbound traffic to services defined in the service registry as well
+#   as those defined through ServiceEntries
+outboundTrafficPolicy:
+  mode: ALLOW_ANY
+
+localityLbSetting:
+  {}
+ ```
