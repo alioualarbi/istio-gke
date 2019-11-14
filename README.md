@@ -248,3 +248,45 @@ The command returns ‘connection refused’ since there is no Istio programming
 
 
 ##### 6.1 Creating a Gateway and VirtualService
+###### Creating the Gateway object
+[Documentation](https://istio.io/docs/reference/config/networking/v1alpha3/gateway/)
+
+The following gateway object configures the ingressgateway deployment to accept incoming connections to port 80 on any IP (hosts: *).
+```
+kubectl apply -f - <<EOF
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: bookinfo-gateway
+spec:
+  selector:
+    istio: ingressgateway # use istio default controller
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "*"
+EOF
+```
+
+Now, The ingress gateway now has a listener for port 80
+```
+$ istioctl pc listeners $(kubectl get pods -l istio=ingressgateway -o jsonpath='{.items[0].metadata.name}' -n istio-system).istio-system
+```
+And a route for http 80 was also added
+```
+$ istioctl pc routes $(kubectl get pods -l istio=ingressgateway -o jsonpath='{.items[0].metadata.name}' -n istio-system).istio-system
+```
+The route defines a default 404 response
+```
+$ istioctl pc routes $(kubectl get pods -l istio=ingressgateway -o jsonpath='{.items[0].metadata.name}' -n istio-system).istio-system --name http.80 -o json
+```
+
+At this point, we will get 404 when reaching the ingress gateway instead of ‘connection refused’:
+```
+$ curl -I $(kubectl -n istio-system get service istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+```
+
+So basically we just programmed the envoy from the istio-ingressgateway to listen on port 80 and to return 404 by default.
