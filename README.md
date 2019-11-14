@@ -1,5 +1,5 @@
-### Create cluster with the Istio GKE addon
-#### 1. RUN: 
+#                  Create cluster with the Istio GKE addon
+#### 1. Creating a cluster: 
 ```
 $ export GCP_ZONE=[YOUR-ZONE]
 $ gcloud beta container clusters create "istio-cluster" --zone $GCP_ZONE --no-enable-basic-auth --cluster-version "1.13.7-gke.24" --machine-type "n1-standard-2" --num-nodes "3" --enable-stackdriver-kubernetes --enable-ip-alias --addons HorizontalPodAutoscaling,HttpLoadBalancing,Istio --istio-config auth=MTLS_PERMISSIVE --enable-autoupgrade --enable-autorepair
