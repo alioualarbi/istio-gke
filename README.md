@@ -354,3 +354,17 @@ NOTE: the response header shows the request is served by envoy
 $ curl -I http://${GATEWAY_URL}
 ```
 #### 7. Accessing an external service from inside the Mesh
+[Documentation](https://istio.io/docs/tasks/traffic-management/egress/egress-control/)
+
+In this version of Istio, envoy is configured by default as a passthrough for requests to external services.
+
+To confirm that, let’s access an external http service from a pod:
+```
+$ kubectl exec -it $(kubectl get pod -l app=ratings -o jsonpath='{.items[0].metadata.name}') -c ratings -- curl -I httpbin.org
+```
+Or using my [http incoming request application](https://github.com/alioualarbi/Http-webhook) as http incoming tester.
+
+```
+$ kubectl exec -it $(kubectl get pod -l app=ratings -o jsonpath='{.items[0].metadata.name}') -c ratings -- curl -d '{"app":"rating", "need":"ack"}' -X POST http://34.98.83.12/eeda9dc1-8ebd-4f6e-b7ce-9f349b4735cb
+```
+
