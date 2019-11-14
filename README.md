@@ -290,3 +290,66 @@ $ curl -I $(kubectl -n istio-system get service istio-ingressgateway -o jsonpath
 ```
 
 So basically we just programmed the envoy from the istio-ingressgateway to listen on port 80 and to return 404 by default.
+
+###### Creating the VirtualService object
+[Documentation](https://istio.io/docs/reference/config/networking/v1alpha3/virtual-service/)
+
+What allows us to program the url mappings on the ingress gateway with our application backends, is the VirtualService object. The following VirtualService programs a set of uris which maps to the productpage application backend.
+```
+kubectl apply -f - <<EOF
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: bookinfo
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - bookinfo-gateway
+  http:
+  - match:
+    - uri:
+        exact: /productpage
+    - uri:
+        prefix: /static
+    - uri:
+        exact: /login
+    - uri:
+        exact: /logout
+    - uri:
+        prefix: /api/v1/products
+    route:
+    - destination:
+        host: productpage
+        port:
+          number: 9080
+EOF
+```
+Looking at the http.80 route now, we see it is linked to the productpage backend:
+```
+$ istioctl pc routes $(kubectl get pods -l istio=ingressgateway -o jsonpath='{.items[0].metadata.name}' -n istio-system).istio-system --name http.80 -o json
+```
+Checking the objects created
+```
+$ kubectl get gateway
+$ kubectl get gateway bookinfo-gateway -o yaml
+$ kubectl get virtualservice 
+$ kubectl get virtualservice bookinfo -o yaml
+```
+Reaching the app from outside the cluster
+Forming the app URL with the gateway endpoint
+```
+export INGRESS_HOST=$(kubectl -n istio-system get service istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+export INGRESS_PORT=$(kubectl -n istio-system get service istio-ingressgateway -o jsonpath='{.spec.ports[?(@.name=="http2")].port}')
+
+export GATEWAY_URL=$INGRESS_HOST:$INGRESS_PORT/productpage
+```
+Reaching the app from outside the cluster
+```
+$ curl -s http://${GATEWAY_URL} | grep -o "<title>.*</title>"
+```
+NOTE: the response header shows the request is served by envoy
+```
+$ curl -I http://${GATEWAY_URL}
+```
